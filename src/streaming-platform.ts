@@ -20,6 +20,9 @@ export class StreamingPlatform {
   private countdownInterval: number | null = null;
   private eventPriceToBeat: Map<string, number> = new Map(); // Map of event slug to price to beat
   private eventLastPrice: Map<string, number> = new Map(); // Map of event slug to last price (from previous event end)
+  private upPrice: number | null = null; // Current UP token price (0-100 scale)
+  private downPrice: number | null = null; // Current DOWN token price (0-100 scale)
+  private priceUpdateInterval: number | null = null; // Interval for updating UP/DOWN prices
 
   constructor() {
     this.wsClient = new WebSocketClient();
@@ -47,6 +50,7 @@ export class StreamingPlatform {
     await this.loadEvents();
     this.eventManager.startAutoRefresh(60000); // Refresh every minute
     this.renderTradingSection(); // Initialize trading section UI
+    this.startPriceUpdates(); // Start updating UP/DOWN prices
   }
 
   private setupEventListeners(): void {
@@ -217,6 +221,15 @@ export class StreamingPlatform {
     }).format(price);
   }
 
+  /**
+   * Format UP/DOWN price (0-100 scale) as cents
+   */
+  private formatUpDownPrice(price: number): string {
+    // Price is in 0-100 scale, convert to cents (0-10000)
+    const cents = Math.round(price);
+    return `${cents}¢`;
+  }
+
   private async loadEvents(): Promise<void> {
     try {
       await this.eventManager.loadEvents(10);
@@ -330,6 +343,97 @@ export class StreamingPlatform {
     }
   }
 
+  /**
+   * Fetch UP and DOWN prices for the active event
+   */
+  private async updateUpDownPrices(): Promise<void> {
+    const events = this.eventManager.getEvents();
+    const activeEvent = events.find(e => e.status === 'active');
+
+    if (!activeEvent || !activeEvent.clobTokenIds || activeEvent.clobTokenIds.length < 2) {
+      this.upPrice = null;
+      this.downPrice = null;
+      // Update DOM to show no prices
+      this.updateUpDownPriceDisplay();
+      return;
+    }
+
+    const upTokenId = activeEvent.clobTokenIds[0]; // First token = UP
+    const downTokenId = activeEvent.clobTokenIds[1]; // Second token = DOWN
+
+    try {
+      // Fetch prices in parallel
+      const [upPriceResult, downPriceResult] = await Promise.all([
+        fetch(`https://clob.polymarket.com/price?side=BUY&token_id=${upTokenId}`),
+        fetch(`https://clob.polymarket.com/price?side=BUY&token_id=${downTokenId}`),
+      ]);
+
+      if (upPriceResult.ok) {
+        const upData = await upPriceResult.json();
+        this.upPrice = upData.price ? parseFloat(upData.price) * 100 : null; // Convert to 0-100 scale
+      }
+
+      if (downPriceResult.ok) {
+        const downData = await downPriceResult.json();
+        this.downPrice = downData.price ? parseFloat(downData.price) * 100 : null; // Convert to 0-100 scale
+      }
+
+      // Update DOM elements directly for smoother updates
+      this.updateUpDownPriceDisplay();
+    } catch (error) {
+      console.error('Error fetching UP/DOWN prices:', error);
+    }
+  }
+
+  /**
+   * Update UP/DOWN price display in DOM without re-rendering entire section
+   */
+  private updateUpDownPriceDisplay(): void {
+    const upPriceElement = document.getElementById('up-price-value');
+    const downPriceElement = document.getElementById('down-price-value');
+
+    if (upPriceElement) {
+      upPriceElement.textContent = this.upPrice !== null ? this.formatUpDownPrice(this.upPrice) : '--';
+      // Add animation class
+      upPriceElement.classList.add('price-update');
+      setTimeout(() => {
+        upPriceElement.classList.remove('price-update');
+      }, 300);
+    }
+
+    if (downPriceElement) {
+      downPriceElement.textContent = this.downPrice !== null ? this.formatUpDownPrice(this.downPrice) : '--';
+      // Add animation class
+      downPriceElement.classList.add('price-update');
+      setTimeout(() => {
+        downPriceElement.classList.remove('price-update');
+      }, 300);
+    }
+  }
+
+  /**
+   * Start updating UP/DOWN prices in real-time
+   */
+  private startPriceUpdates(): void {
+    this.stopPriceUpdates();
+    // Update immediately
+    this.updateUpDownPrices();
+    // Then update every 1 second
+    this.priceUpdateInterval = window.setInterval(() => {
+      this.updateUpDownPrices();
+    }, 1000);
+  }
+
+  /**
+   * Stop updating UP/DOWN prices
+   */
+  private stopPriceUpdates(): void {
+    if (this.priceUpdateInterval !== null) {
+      clearInterval(this.priceUpdateInterval);
+      this.priceUpdateInterval = null;
+    }
+  }
+
   private renderActiveEvent(): void {
     const events = this.eventManager.getEvents();
     const activeEvent = events.find(e => e.status === 'active');
@@ -374,6 +478,16 @@ export class StreamingPlatform {
           <span class="price-to-beat-label">Price to Beat:</span>
           <span class="price-to-beat-value">${priceToBeatDisplay}</span>
         </div>
+        <div class="active-event-up-down-prices">
+          <button class="up-down-button up-button" id="up-price-button">
+            <span class="button-label">Up</span>
+            <span class="button-price" id="up-price-value">${this.upPrice !== null ? this.formatUpDownPrice(this.upPrice) : '--'}</span>
+          </button>
+          <button class="up-down-button down-button" id="down-price-button">
+            <span class="button-label">Down</span>
+            <span class="button-price" id="down-price-value">${this.downPrice !== null ? this.formatUpDownPrice(this.downPrice) : '--'}</span>
+          </button>
+        </div>
         <div class="active-event-details">
           <div class="active-event-detail-item">
             <span class="detail-label">Start:</span>
@@ -407,6 +521,11 @@ export class StreamingPlatform {
 
     // Start countdown for active event
     this.startCountdown();
+    
+    // Update prices if we have token IDs
+    if (activeEvent.clobTokenIds && activeEvent.clobTokenIds.length >= 2) {
+      this.updateUpDownPrices();
+    }
   }
 
   private renderEventsTable(): void {
