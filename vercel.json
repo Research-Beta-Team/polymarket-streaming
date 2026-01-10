@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/polymarket/:path*",
+      "destination": "/api/proxy/:path*"
+    },
+    {
+      "source": "/api/clob-proxy",
+      "destination": "/api/clob-proxy"
+    }
+  ]
+}

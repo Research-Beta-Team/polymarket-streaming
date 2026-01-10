@@ -1,7 +1,5 @@
-// Use proxy in development, direct API in production
-const GAMMA_API_BASE = import.meta.env.DEV 
-  ? '/api/polymarket' 
-  : 'https://gamma-api.polymarket.com';
+// Use proxy in both development and production to avoid CORS issues
+const GAMMA_API_BASE = '/api/polymarket';
 
 export interface PolymarketEvent {
   slug: string;

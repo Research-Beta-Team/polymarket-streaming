@@ -362,10 +362,10 @@ export class StreamingPlatform {
     const downTokenId = activeEvent.clobTokenIds[1]; // Second token = DOWN
 
     try {
-      // Fetch prices in parallel
+      // Fetch prices in parallel using proxy to avoid CORS issues
       const [upPriceResult, downPriceResult] = await Promise.all([
-        fetch(`https://clob.polymarket.com/price?side=BUY&token_id=${upTokenId}`),
-        fetch(`https://clob.polymarket.com/price?side=BUY&token_id=${downTokenId}`),
+        fetch(`/api/clob-proxy?side=BUY&token_id=${upTokenId}`),
+        fetch(`/api/clob-proxy?side=BUY&token_id=${downTokenId}`),
       ]);
 
       if (upPriceResult.ok) {
